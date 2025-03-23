@@ -109,7 +109,7 @@ csv_output = "report_data.csv"
 df_results.to_csv(csv_output, index=False)
 print(f"CSV file '{csv_output}' has been written.")
 
-# Optionally, you can also aggregate average sentiment counts per firm per year and save that:
+# Aggregate average sentiment counts per firm per year:
 aggregation_fields = ['positive', 'negative', 'litigious', 'uncertainty', 'constraining', 'superfluous', 'total_tokens']
 df_avg = df_results.groupby(['firm', 'year'], as_index=False)[aggregation_fields].mean()
 csv_avg_output = "avg_sentiment_per_firm_year.csv"
