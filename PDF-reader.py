@@ -1,36 +1,18 @@
-import pip
-pip.main(['install','pypdf2'])
-pip.main(['install','pandas'])
-pip.main(['install','feedparser'])
-pip.main(['install','nltk'])
-pip.main(['install','transformers'])
-pip.main(['install','tenserflow'])
-
+# Import necessary libraries
 import os
-import re
-import json
-import pandas as pd
-import PyPDF2
 import feedparser
 import nltk
 from PyPDF2 import PdfReader
-from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk.tokenize import sent_tokenize
-# Use a pipeline as a high-level helper
 from transformers import pipeline
-pipe = pipeline("text-classification", model="ProsusAI/finbert")
 
-
-# Ensure the following NLTK downloads are available
-nltk.download("vader_lexicon")  # For sentiment analysis
-nltk.download("punkt_tab")  # For sentence tokenization
+# Ensure required NLTK downloads are available
 nltk.download("punkt")
 
-# Path to the folder containing outlook PDFs
+# Define paths and models
 folder_path = r'C:\Users\hidde\OneDrive\Documenten\NLP Data\GitHub\AssetManagersOutlook-DSF\Yearly data outlooks'
-
-# Initialize sentiment analyzer
-sia = SentimentIntensityAnalyzer()
+sentiment_pipe = pipeline("text-classification", model="ProsusAI/finbert")
+summary_pipe = pipeline("summarization", model="facebook/bart-large-cnn")
 
 # Ensure the folder exists
 if not os.path.exists(folder_path):
@@ -38,46 +20,41 @@ if not os.path.exists(folder_path):
 else:
     print(f"Reading PDFs from: {folder_path}")
 
-# List to store results for all files
+# List to store results
 results = []
 
-# Loop through every PDF file in the folder
+# Process each PDF file in the folder
 for filename in os.listdir(folder_path):
-    if filename.endswith(".pdf"):  # Process only PDF files
+    if filename.endswith(".pdf"):  # Process only PDFs
         pdf_path = os.path.join(folder_path, filename)
-
         print(f"Processing file: {filename}")
 
         try:
             # Read the PDF file
             reader = PdfReader(pdf_path)
-            text = ""
-            for page in reader.pages:  # Concatenate text from all pages
-                text += page.extract_text()
+            text = " ".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-            # Tokenize text into sentences for a quick summary
-            sentences = sent_tokenize(text)
-            summary = " ".join(sentences[:3])  # First three sentences
+            # Generate a summary using the summarization model
+            summary = summary_pipe(text[:1000], max_length=150, min_length=50, do_sample=False)[0]["summary_text"]
 
-            # Compute sentiment score
-            sentiment = sia.polarity_scores(text)
+            # Compute sentiment using FinBERT
+            sentiment = sentiment_pipe(text[:1000])[0]  # Analyze the first 1000 characters for performance
 
-            # Save the results
+            # Store results
             results.append({
                 "filename": filename,
-                "sentiment_score": sentiment,
+                "sentiment_label": sentiment["label"],
+                "sentiment_score": sentiment["score"],
                 "summary": summary
             })
 
         except Exception as e:
             print(f"Error processing file {filename}: {e}")
 
-# Display results (you can save/export this data as needed)
+# Display results
 for result in results:
     print("\n-------------------------------")
     print(f"Filename: {result['filename']}")
-    print(f"Sentiment Score: {result['sentiment_score']}")
+    print(f"Sentiment: {result['sentiment_label']}, Score: {result['sentiment_score']}")
     print(f"Summary: {result['summary']}")
     print("--------------------------------")
-
-
