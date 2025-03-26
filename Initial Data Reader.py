@@ -1,3 +1,9 @@
+import pip
+pip.main(['install','pdfplumber'])
+pip.main(['install','pysentiment2'])
+pip.main(['install','pandas'])
+pip.main(['install','nltk'])
+
 import os
 import re
 import json
