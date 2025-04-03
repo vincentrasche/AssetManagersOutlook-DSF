@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import pickle
 from pdfminer.high_level import extract_text
 import pysentiment2 as ps
 import pandas as pd
@@ -10,30 +11,37 @@ from transformers import BertForSequenceClassification, BertTokenizer, pipeline
 from bertopic import BERTopic
 from collections import Counter
 import torch
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Download required NLTK data
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 
-# Define the folder containing your PDF reports
+# Define folder and filename pattern
 folder_path = 'Yearly data outlooks'
-
-# Regex pattern to extract number, firm name, and year from filenames like "123_FirmName_2020.pdf"
 filename_pattern = re.compile(r'(\d+)_([A-Za-z]+)_?(\d{4})')
 
-# Initialize the Loughran-McDonald sentiment analyzer from pysentiment2
+# Cache file for processed data
+cache_file = "report_data.pkl"
+
+# Initialize FinBERT and summarization pipelines
+finbert_tokenizer = BertTokenizer.from_pretrained("ProsusAI/finbert")
+finbert_model = BertForSequenceClassification.from_pretrained("ProsusAI/finbert")
+finbert_pipeline = pipeline("sentiment-analysis", model=finbert_model, tokenizer=finbert_tokenizer)
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+
+# Initialize LM sentiment analyzer
 lm = ps.LM()
 
-# Define individual terms for asset classes and regions
+# Define asset and region terms/groups
 asset_terms = [
     "equities", "stocks", "fixed income", "bonds", "real estate",
     "commodities", "alternatives", "infrastructure", "private equity",
     "hedge funds", "cash"
 ]
-region_terms = ["europe", "us", "united states", "america", "asia", "china", "japan", "emerging markets", "eu",
-                "eurozone", "india"]
+region_terms = ["europe", "us", "united states", "america", "asia", "china", "japan", "emerging markets", "eu", "eurozone", "india"]
 
-# Define grouping dictionaries for asset classes and regions
 asset_class_groups = {
     "Equity": ["equities", "stocks"],
     "Fixed Income": ["fixed income", "bonds"],
@@ -48,18 +56,12 @@ asset_class_groups = {
 
 region_groups = {
     "USA": ["us", "united states", "america", "usa", "united states of america"],
-    "Europe": ["europe", "eu", "eurozone", "germany","france"],
+    "Europe": ["europe", "eu", "eurozone", "germany", "france"],
     "Asia": ["asia", "china", "japan", "india"],
     "Emerging Markets": ["emerging markets"]
 }
 
-# Initialize FinBERT using Hugging Face Transformers
-finbert_tokenizer = BertTokenizer.from_pretrained("ProsusAI/finbert")
-finbert_model = BertForSequenceClassification.from_pretrained("ProsusAI/finbert")
-finbert_pipeline = pipeline("sentiment-analysis", model=finbert_model, tokenizer=finbert_tokenizer)
-
-
-# Helper function: convert FinBERT label to numeric score
+# Helper: Convert FinBERT label to numeric score.
 def finbert_score(label):
     if label.lower() == "positive":
         return 1
@@ -68,22 +70,13 @@ def finbert_score(label):
     else:
         return 0
 
-
-# Helper function: sliding window sentiment analysis for long texts
+# Helper: Sliding-window FinBERT sentiment for long texts.
 def finbert_sentiment_long(text, window_length=512, overlap=50):
-    """
-    Splits the text into overlapping chunks (if necessary), adds special tokens,
-    processes each chunk with FinBERT, and aggregates the probabilities.
-    Returns the aggregated probabilities dictionary.
-    """
-    # Tokenize the text without special tokens
     encoding = finbert_tokenizer.encode_plus(text, add_special_tokens=False, return_tensors="pt")
-    input_ids = encoding['input_ids'][0].tolist()  # list of token ids
+    input_ids = encoding['input_ids'][0].tolist()
     attention_mask = encoding['attention_mask'][0].tolist()
     total_len = len(input_ids)
-
-    # Set effective chunk length: we reserve 2 tokens for [CLS] and [SEP]
-    chunk_length = window_length - 2
+    chunk_length = window_length - 2  # Reserve space for [CLS] and [SEP]
     proba_list = []
     start = 0
     while start < total_len:
@@ -92,170 +85,174 @@ def finbert_sentiment_long(text, window_length=512, overlap=50):
             end = total_len
         chunk_ids = input_ids[start:end]
         chunk_mask = attention_mask[start:end]
-        # Add special tokens: [CLS] and [SEP]
+        # Add special tokens.
         chunk_ids = [finbert_tokenizer.cls_token_id] + chunk_ids + [finbert_tokenizer.sep_token_id]
         chunk_mask = [1] + chunk_mask + [1]
-        # Pad if needed
         pad_length = window_length - len(chunk_ids)
         if pad_length > 0:
             chunk_ids += [finbert_tokenizer.pad_token_id] * pad_length
             chunk_mask += [0] * pad_length
-        # Create input dict
         input_dict = {
             'input_ids': torch.tensor([chunk_ids]),
             'attention_mask': torch.tensor([chunk_mask])
         }
-        # Process chunk
         outputs = finbert_model(**input_dict)
         probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
         proba_list.append(probabilities)
         if end >= total_len:
             break
-        start = end - overlap  # move window with overlap
-
-    # Aggregate probabilities: stack and take mean along chunk dimension
+        start = end - overlap
     with torch.no_grad():
-        stacked = torch.stack(proba_list).squeeze(1)  # shape: (num_chunks, num_classes)
+        stacked = torch.stack(proba_list).squeeze(1)
         mean_probs = stacked.mean(dim=0)
-    # Convert tensor to dictionary with labels
     labels = finbert_model.config.id2label
     aggregated = {labels[i].lower(): mean_probs[i].item() for i in range(len(mean_probs))}
     return aggregated
 
-
-# Function to extract sentences containing any of the given terms
+# Helper: Extract sentences containing any given terms.
 def extract_sentences(text, terms):
     sentences = sent_tokenize(text)
     matching = [sent for sent in sentences if any(term.lower() in sent.lower() for term in terms)]
     return matching
 
+# Helper: Summarize text to 1-4 sentences.
+def summarize_text(text, max_length=150, min_length=40):
+    words = text.split()
+    if len(words) > 500:
+        text = " ".join(words[:500])
+    try:
+        summary = summarizer(text, max_length=max_length, min_length=min_length, do_sample=False)
+        return summary[0]['summary_text']
+    except Exception as e:
+        return " ".join(sent_tokenize(text)[:2])
 
-# Prepare a list to hold results for each document
-results = []
+# Process PDFs (or load from cache)
+if os.path.exists(cache_file):
+    print("Loading cached data from", cache_file)
+    with open(cache_file, "rb") as f:
+        df_results = pickle.load(f)
+else:
+    print("No cache found. Processing PDFs...")
+    results = []
+    for filename in os.listdir(folder_path):
+        if filename.lower().endswith('.pdf'):
+            match = filename_pattern.match(filename)
+            if match:
+                number, firm, year = match.groups()
+                filepath = os.path.join(folder_path, filename)
+                try:
+                    text = extract_text(filepath)
+                except Exception as e:
+                    print(f"Error reading {filename}: {e}")
+                    continue
+                # Build document result; store summary instead of full text.
+                doc_result = {
+                    'firm': firm,
+                    'year': int(year),
+                    'filename': filename,
+                    'summary': summarize_text(text)
+                }
+                # Overall sentiment from LM lexicon.
+                tokens = lm.tokenize(text)
+                score = lm.get_score(tokens)
+                positive_count = score.get('Positive', 0)
+                negative_count = score.get('Negative', 0)
+                total_tokens = score.get('Total', 1)
+                compound_score = (positive_count - negative_count) / (positive_count + negative_count) if (positive_count + negative_count) > 0 else 0
+                doc_result.update({
+                    'positive': positive_count,
+                    'negative': negative_count,
+                    'compound_sentiment': compound_score,
+                    'total_tokens': total_tokens
+                })
+                text_lower = text.lower()
+                # Count grouped asset and region mentions.
+                grouped_asset_counts = {group: sum(text_lower.count(term) for term in terms)
+                                        for group, terms in asset_class_groups.items()}
+                grouped_region_counts = {group: sum(text_lower.count(term) for term in terms)
+                                         for group, terms in region_groups.items()}
+                doc_result.update({
+                    'asset_counts': grouped_asset_counts,
+                    'region_counts': grouped_region_counts
+                })
+                # Aspect-based sentiment analysis per asset group.
+                aspect_sentiments = {}
+                for group, terms in asset_class_groups.items():
+                    sentences_group = extract_sentences(text, terms)
+                    if sentences_group:
+                        scores = []
+                        for sent in sentences_group:
+                            try:
+                                res = finbert_pipeline(sent, truncation=True)[0]
+                                numeric = finbert_score(res['label']) * res['score']
+                                scores.append(numeric)
+                            except Exception as e:
+                                print(f"Error processing FinBERT for {filename} on group {group} for sentence: {sent[:30]}: {e}")
+                        avg_score = sum(scores) / len(scores) if scores else None
+                    else:
+                        avg_score = None
+                    aspect_sentiments[group] = avg_score
+                doc_result['aspect_sentiments'] = aspect_sentiments
+                # Optional: Named Entity Extraction using NLTK.
+                tokens_doc = word_tokenize(text)
+                pos_tags = nltk.pos_tag(tokens_doc)
+                ne_tree = nltk.ne_chunk(pos_tags, binary=False)
+                entities = []
+                for subtree in ne_tree:
+                    if hasattr(subtree, 'label'):
+                        entity = " ".join([leaf[0] for leaf in subtree.leaves()])
+                        label = subtree.label()
+                        if label in ['GPE', 'ORGANIZATION']:
+                            entities.append(entity)
+                doc_result['named_entities'] = dict(Counter(entities))
+                results.append(doc_result)
+    df_results = pd.DataFrame(results)
+    # Save cache to avoid reprocessing PDFs.
+    with open(cache_file, "wb") as f:
+        pickle.dump(df_results, f)
+    print("Processed PDFs and saved cache to", cache_file)
 
-# Process each PDF file using pdfminer.six
-for filename in os.listdir(folder_path):
-    if filename.lower().endswith('.pdf'):
-        match = filename_pattern.match(filename)
-        if match:
-            number, firm, year = match.groups()
-            filepath = os.path.join(folder_path, filename)
-            try:
-                text = extract_text(filepath)
-            except Exception as e:
-                print(f"Error reading {filename}: {e}")
-                continue
+# Remove full raw text if exists (we keep summary)
+if 'text' in df_results.columns:
+    df_results = df_results.drop(columns=['text'])
 
-            # Create base result dictionary
-            doc_result = {
-                'firm': firm,
-                'year': int(year),
-                'filename': filename,
-                'text': text  # full raw text
-            }
-
-            # Sentiment analysis using pysentiment2's LM lexicon
-            tokens = lm.tokenize(text)
-            score = lm.get_score(tokens)
-            positive_count = score.get('Positive', 0)
-            negative_count = score.get('Negative', 0)
-            total_tokens = score.get('Total', 1)
-            compound_score = (positive_count - negative_count) / (positive_count + negative_count) if (
-                                                                                                                  positive_count + negative_count) > 0 else 0
-
-            doc_result.update({
-                'positive': positive_count,
-                'negative': negative_count,
-                'compound_sentiment': compound_score,
-                'total_tokens': total_tokens
-            })
-
-            text_lower = text.lower()
-
-            # Count individual asset class and region mentions
-            asset_counts = {term: text_lower.count(term) for term in asset_terms}
-            region_counts = {term: text_lower.count(term) for term in region_terms}
-
-            # Group counts for asset classes and regions
-            grouped_asset_counts = {group: sum(text_lower.count(term) for term in terms)
-                                    for group, terms in asset_class_groups.items()}
-            grouped_region_counts = {group: sum(text_lower.count(term) for term in terms)
-                                     for group, terms in region_groups.items()}
-
-            doc_result.update({
-                'asset_counts': asset_counts,
-                'grouped_asset_counts': grouped_asset_counts,
-                'region_counts': region_counts,
-                'grouped_region_counts': grouped_region_counts
-            })
-
-            # Aspect-Based Sentiment Analysis using FinBERT on asset groups
-            aspect_sentiments = {}
-            for group, terms in asset_class_groups.items():
-                sentences_group = extract_sentences(text, terms)
-                if sentences_group:
-                    # Combine sentences into one text block (or process individually)
-                    combined_text = " ".join(sentences_group)
-                    try:
-                        # Use the sliding-window function to get aggregated probabilities
-                        agg_probs = finbert_sentiment_long(combined_text, window_length=512, overlap=50)
-                        # Map the probabilities to a numeric score: here we choose (Positive - Negative)
-                        score_value = agg_probs.get("positive", 0) - agg_probs.get("negative", 0)
-                    except Exception as e:
-                        print(f"Error processing FinBERT for {filename} on group {group}: {e}")
-                        score_value = None
-                else:
-                    score_value = None
-                aspect_sentiments[group] = score_value
-            doc_result['aspect_sentiments'] = aspect_sentiments
-
-            # Extract ranking-related sentences
-            ranking_indicators = ["rank", "ranking", "top", "best", "first", "second", "third", "fourth", "fifth"]
-            sentences_all = sent_tokenize(text)
-            ranking_sentences = [sent.strip() for sent in sentences_all if
-                                 any(term in sent.lower() for term in asset_terms) and
-                                 any(rk in sent.lower() for rk in ranking_indicators)]
-            doc_result['ranking_sentences'] = ranking_sentences
-
-            # Advanced Analysis: Named entity extraction using NLTK
-            tokens_doc = word_tokenize(text)
-            pos_tags = nltk.pos_tag(tokens_doc)
-            ne_tree = nltk.ne_chunk(pos_tags, binary=False)
-            entities = []
-            for subtree in ne_tree:
-                if hasattr(subtree, 'label'):
-                    entity = " ".join([leaf[0] for leaf in subtree.leaves()])
-                    label = subtree.label()
-                    if label in ['GPE', 'ORGANIZATION']:
-                        entities.append(entity)
-            doc_result['named_entities'] = dict(Counter(entities))
-
-            results.append(doc_result)
-
-# Create a DataFrame with the results
-df_results = pd.DataFrame(results)
 print("Detailed Document Results:")
 print(df_results.head())
 
-# Convert nested dictionary/list columns to JSON strings for CSV storage
-cols_to_convert = ['asset_counts', 'grouped_asset_counts', 'region_counts',
-                   'grouped_region_counts', 'ranking_sentences', 'named_entities', 'aspect_sentiments']
-for col in cols_to_convert:
-    df_results[col] = df_results[col].apply(json.dumps)
-
+# Export CSV (report_data.csv) with summary and key info.
 csv_output = "report_data.csv"
 df_results.to_csv(csv_output, index=False)
 print(f"CSV file '{csv_output}' has been written.")
 
-# Aggregate average sentiment counts per firm per year
+# Aggregate overall sentiment per firm per year.
 aggregation_fields = ['positive', 'negative', 'compound_sentiment', 'total_tokens']
 df_avg = df_results.groupby(['firm', 'year'], as_index=False)[aggregation_fields].mean()
 csv_avg_output = "avg_sentiment_per_firm_year.csv"
 df_avg.to_csv(csv_avg_output, index=False)
 print(f"CSV file '{csv_avg_output}' has been written.")
 
-# --- Topic Modeling with BERTopic ---
-docs = df_results['text'].tolist()
+# Expand aspect_sentiments into separate columns.
+df_results['aspect_sentiments'] = df_results['aspect_sentiments'].apply(lambda x: x if isinstance(x, dict) else {})
+aspect_df = df_results['aspect_sentiments'].apply(pd.Series)
+df_expanded = pd.concat([df_results.drop(columns=['aspect_sentiments']), aspect_df], axis=1)
+
+# Exclude 'year' (and any other grouping columns, like 'firm' if present) from the numeric columns before aggregation.
+numeric_cols = [col for col in df_expanded.select_dtypes(include=['number']).columns if col not in ['year']]
+# Group by firm and year, using as_index=False to keep grouping columns as columns.
+df_aspect_avg = df_expanded.groupby(['firm', 'year'], as_index=False)[numeric_cols].mean()
+df_aspect_avg.to_csv("avg_aspect_sentiments_per_firm_year.csv", index=False)
+print("CSV file 'avg_aspect_sentiments_per_firm_year.csv' has been written.")
+
+# --- Topic Modeling with BERTopic on summaries ---
+if 'summary' in df_results.columns:
+    docs = df_results['summary'].tolist()
+else:
+    print("Warning: 'summary' column not found. Using full text instead (if available).")
+    if 'text' in df_results.columns:
+        docs = df_results['text'].tolist()
+    else:
+        raise KeyError("Neither 'summary' nor 'text' columns are found in the data.")
+
 topic_model = BERTopic()
 topics, probs = topic_model.fit_transform(docs)
 topic_info = topic_model.get_topic_info()
