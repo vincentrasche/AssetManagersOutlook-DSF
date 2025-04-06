@@ -22,7 +22,7 @@ nltk.download('averaged_perceptron_tagger')
 folder_path = 'Yearly data outlooks'
 filename_pattern = re.compile(r'(\d+)_([A-Za-z]+)_?(\d{4})')
 
-# Cache file for processed data
+
 cache_file = "report_data.pkl"
 
 # Initialize FinBERT and summarization pipelines
