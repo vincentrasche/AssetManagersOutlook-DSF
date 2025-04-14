@@ -13,6 +13,7 @@ from collections import Counter
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+import ast
 
 # Download required NLTK data
 nltk.download('punkt')
@@ -22,8 +23,7 @@ nltk.download('averaged_perceptron_tagger')
 folder_path = 'Yearly data outlooks'
 filename_pattern = re.compile(r'(\d+)_([A-Za-z]+)_?(\d{4})')
 
-
-cache_file = "report_data.pkl"
+cache_file = "report_date.pkl"
 
 # Initialize FinBERT and summarization pipelines
 finbert_tokenizer = BertTokenizer.from_pretrained("ProsusAI/finbert")
@@ -152,7 +152,7 @@ else:
                     'filename': filename,
                     'summary': summarize_text(text)
                 }
-                # Overall sentiment from LM lexicon.
+                # Overall sentiment using LM lexicon.
                 tokens = lm.tokenize(text)
                 score = lm.get_score(tokens)
                 positive_count = score.get('Positive', 0)
@@ -166,7 +166,7 @@ else:
                     'total_tokens': total_tokens
                 })
                 text_lower = text.lower()
-                # Count grouped asset and region mentions.
+                # Grouped counts for asset classes and regions.
                 grouped_asset_counts = {group: sum(text_lower.count(term) for term in terms)
                                         for group, terms in asset_class_groups.items()}
                 grouped_region_counts = {group: sum(text_lower.count(term) for term in terms)
@@ -175,7 +175,7 @@ else:
                     'asset_counts': grouped_asset_counts,
                     'region_counts': grouped_region_counts
                 })
-                # Aspect-based sentiment analysis per asset group.
+                # Aspect-based sentiment analysis for asset groups.
                 aspect_sentiments = {}
                 for group, terms in asset_class_groups.items():
                     sentences_group = extract_sentences(text, terms)
@@ -193,6 +193,26 @@ else:
                         avg_score = None
                     aspect_sentiments[group] = avg_score
                 doc_result['aspect_sentiments'] = aspect_sentiments
+
+                # NEW: Region-based sentiment analysis.
+                region_sentiments = {}
+                for region, terms in region_groups.items():
+                    sentences_region = extract_sentences(text, terms)
+                    if sentences_region:
+                        scores = []
+                        for sent in sentences_region:
+                            try:
+                                res = finbert_pipeline(sent, truncation=True)[0]
+                                numeric = finbert_score(res['label']) * res['score']
+                                scores.append(numeric)
+                            except Exception as e:
+                                print(f"Error processing FinBERT for {filename} on region {region} for sentence: {sent[:30]}: {e}")
+                        avg_score = sum(scores) / len(scores) if scores else None
+                    else:
+                        avg_score = None
+                    region_sentiments[region] = avg_score
+                doc_result['region_sentiments'] = region_sentiments
+
                 # Optional: Named Entity Extraction using NLTK.
                 tokens_doc = word_tokenize(text)
                 pos_tags = nltk.pos_tag(tokens_doc)
@@ -212,7 +232,7 @@ else:
         pickle.dump(df_results, f)
     print("Processed PDFs and saved cache to", cache_file)
 
-# Remove full raw text if exists (we keep summary)
+# Remove full raw text if it exists (we keep summary).
 if 'text' in df_results.columns:
     df_results = df_results.drop(columns=['text'])
 
@@ -236,12 +256,16 @@ df_results['aspect_sentiments'] = df_results['aspect_sentiments'].apply(lambda x
 aspect_df = df_results['aspect_sentiments'].apply(pd.Series)
 df_expanded = pd.concat([df_results.drop(columns=['aspect_sentiments']), aspect_df], axis=1)
 
-# Exclude 'year' (and any other grouping columns, like 'firm' if present) from the numeric columns before aggregation.
-numeric_cols = [col for col in df_expanded.select_dtypes(include=['number']).columns if col not in ['year']]
-# Group by firm and year, using as_index=False to keep grouping columns as columns.
-df_aspect_avg = df_expanded.groupby(['firm', 'year'], as_index=False)[numeric_cols].mean()
-df_aspect_avg.to_csv("avg_aspect_sentiments_per_firm_year.csv", index=False)
-print("CSV file 'avg_aspect_sentiments_per_firm_year.csv' has been written.")
+# You may want to save the expanded aspect data as well, if needed:
+df_expanded.to_csv("report_data_expanded.csv", index=False)
+print("CSV file 'report_data_expanded.csv' has been written.")
+
+# (Optional) Similarly, expand region_sentiments if you wish to analyze these further.
+df_results['region_sentiments'] = df_results['region_sentiments'].apply(lambda x: x if isinstance(x, dict) else {})
+region_df = df_results['region_sentiments'].apply(pd.Series)
+df_expanded_regions = pd.concat([df_results.drop(columns=['region_sentiments']), region_df], axis=1)
+df_expanded_regions.to_csv("report_data_expanded_regions.csv", index=False)
+print("CSV file 'report_data_expanded_regions.csv' has been written.")
 
 # --- Topic Modeling with BERTopic on summaries ---
 if 'summary' in df_results.columns:
