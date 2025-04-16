@@ -23,7 +23,7 @@ nltk.download('averaged_perceptron_tagger')
 folder_path = 'Yearly data outlooks'
 filename_pattern = re.compile(r'(\d+)_([A-Za-z]+)_?(\d{4})')
 
-cache_file = "report_date.pkl"
+cache_file = "report_datas.pkl"
 
 # Initialize FinBERT and summarization pipelines
 finbert_tokenizer = BertTokenizer.from_pretrained("ProsusAI/finbert")
