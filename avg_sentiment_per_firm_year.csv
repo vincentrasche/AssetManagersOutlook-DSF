@@ -1,4 +1,4 @@
-firm,year,positive,negative,compound_sentiment,total_tokens
+firm,year,positive,negative,compound,total_tokens
 AQR,2015,87.0,160.0,-0.29554655870445345,1.0
 AQR,2016,69.0,183.0,-0.4523809523809524,1.0
 AQR,2017,73.0,136.0,-0.3014354066985646,1.0
