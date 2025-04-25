@@ -5,18 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b3852af4-b09c-448a-a41a-f9d849b319fe" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/encodings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/topic model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Initial Data Reader.py" beforeDir="false" afterPath="$PROJECT_DIR$/Initial Data Reader.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/avg_sentiment_per_firm_year.csv" beforeDir="false" afterPath="$PROJECT_DIR$/avg_sentiment_per_firm_year.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_data.csv" beforeDir="false" afterPath="$PROJECT_DIR$/report_data.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_data.pkl" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/report_data_expanded.csv" beforeDir="false" afterPath="$PROJECT_DIR$/report_data_expanded.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/report_data_expanded_regions.csv" beforeDir="false" afterPath="$PROJECT_DIR$/report_data_expanded_regions.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_datas.pkl" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_date.pkl" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/topic_info.csv" beforeDir="false" afterPath="$PROJECT_DIR$/topic_info.csv" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -44,20 +36,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.Bertopic.executor": "Run",
-    "Python.Initial Data Reader.executor": "Run",
-    "Python.PCA.executor": "Run",
-    "Python.Portfolio Investment Strategy.executor": "Run",
-    "Python.topic model.executor": "Run",
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "main",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.Bertopic.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Initial Data Reader.executor&quot;: &quot;Run&quot;,
+    &quot;Python.PCA.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Portfolio Investment Strategy.executor&quot;: &quot;Run&quot;,
+    &quot;Python.topic model.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -95,7 +87,7 @@
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/Initial Data Reader.py</url>
-          <line>9</line>
+          <line>3</line>
           <option name="timeStamp" value="1" />
         </line-breakpoint>
       </breakpoints>
