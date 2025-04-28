@@ -1,97 +1,113 @@
 import os
+import re
 import pickle
 import pandas as pd
 
+from pdfminer.high_level import extract_text
 from bertopic import BERTopic
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
+from hdbscan import HDBSCAN
 
-# ─── 1) Load cached DataFrame ──────────────────────────────────────────────────
-CACHE = "report_data_last.pkl"
-if not os.path.exists(CACHE):
-    raise FileNotFoundError(f"{CACHE} not found – run your PDF parsing script first.")
-with open(CACHE, "rb") as f:
-    df = pickle.load(f)
+# ─── 1) Parse only the first N pages of each PDF ───────────────────────────────
+def parse_first_pages(folder, n_pages=2):
+    pat = re.compile(r"(\d+)_([A-Za-z]+)_?(\d{4})\.pdf")
+    rows = []
+    for fn in os.listdir(folder):
+        m = pat.match(fn)
+        if not m:
+            continue
+        _, firm, year = m.groups()
+        path = os.path.join(folder, fn)
+        try:
+            txt = extract_text(path, page_numbers=list(range(n_pages)))
+        except Exception as e:
+            print(f"Error extracting {fn}: {e}")
+            continue
+        if not txt or not txt.strip():
+            continue
+        rows.append({
+            "filename": fn,
+            "firm": firm,
+            "year": int(year),
+            "text": txt
+        })
+    return pd.DataFrame(rows)
 
-# Ensure there is text to process
-if "text" not in df.columns or df["text"].astype(str).str.strip().eq("").all():
-    raise RuntimeError("No valid 'text' column in cache. Re-parse your PDFs.")
+# ─── 2) Load or build the short‐text cache ─────────────────────────────────────
+FOLDER    = "Yearly data outlooks"
+CACHE2    = "report_data_first2.pkl"
+if os.path.exists(CACHE2):
+    df = pickle.load(open(CACHE2, "rb"))
+    print(f"✔ Loaded {len(df)} docs from '{CACHE2}'")
+else:
+    df = parse_first_pages(FOLDER, n_pages=2)
+    pickle.dump(df, open(CACHE2, "wb"))
+    print(f"✔ Parsed & cached {len(df)} docs (first 2 pages only) → '{CACHE2}'")
 
-# ─── 2) Prepare documents ──────────────────────────────────────────────────────
-# Firm-level documents
-firm_groups = (
+# ─── 3) Core function: fit HDBSCAN + save outputs ──────────────────────────────
+def run_hdbscan(docs, labels, group_name):
+    model = BERTopic(
+        nr_topics="auto",                # let HDBSCAN decide cluster count
+        calculate_probabilities=True,
+        hdbscan_model=HDBSCAN(
+            min_cluster_size=2,          # very small to allow many clusters
+            min_samples=1,
+            prediction_data=True
+        ),
+        vectorizer_model=CountVectorizer(stop_words="english")
+    )
+    print(f"\n▶ Fitting BERTopic+HDBSCAN on {group_name} ({len(docs)} docs)…")
+    topics, probs = model.fit_transform(docs)
+
+    # 3a) Save topic→word→weight lists
+    info = model.get_topic_info()
+    rows = []
+    for t in info.Topic:
+        if t < 0:
+            continue
+        for word, wt in model.get_topic(t):
+            rows.append({
+                group_name: group_name,
+                "topic": t,
+                "word": word,
+                "weight": wt
+            })
+    topics_fn = f"{group_name.lower()}_topics.csv"
+    pd.DataFrame(rows).to_csv(topics_fn, index=False)
+    print(f"   • Wrote topic words → {topics_fn}")
+
+    # 3b) Save doc‐level soft memberships
+    n_topics = probs.shape[1]
+    cols     = [f"topic_{i}" for i in range(n_topics)]
+    dfp      = pd.DataFrame(probs, columns=cols)
+    dfp.insert(0, group_name, labels)
+    probs_fn = f"{group_name.lower()}_doc_probs.csv"
+    dfp.to_csv(probs_fn, index=False)
+    print(f"   • Wrote doc-topic probs → {probs_fn}")
+
+    return model
+
+# ─── 4) Run on individual Papers ───────────────────────────────────────────────
+papers    = df["text"].tolist()
+filenames = df["filename"].tolist()
+run_hdbscan(papers, filenames, "Paper")
+
+# ─── 5) Run on Firms (concatenate each firm’s short texts) ─────────────────────
+firm_df = (
     df.groupby("firm")["text"]
-      .apply(lambda ts: " ".join(t for t in ts.dropna().astype(str) if t.strip()))
-      .reset_index()
+      .apply(lambda ts: " ".join(ts))
+      .reset_index(name="text")
 )
-firm_groups = firm_groups[firm_groups["text"].str.strip() != ""]
-docs_f = firm_groups["text"].tolist()
+firm_df = firm_df[firm_df["text"].str.strip() != ""]
+run_hdbscan(firm_df["text"].tolist(), firm_df["firm"].tolist(), "Firm")
 
-# Year-level documents
-year_groups = (
+# ─── 6) Run on Years (concatenate each year’s short texts) ────────────────────
+year_df = (
     df.groupby("year")["text"]
-      .apply(lambda ts: " ".join(t for t in ts.dropna().astype(str) if t.strip()))
-      .reset_index()
+      .apply(lambda ts: " ".join(ts))
+      .reset_index(name="text")
 )
-year_groups = year_groups[year_groups["text"].str.strip() != ""]
-docs_y = year_groups["text"].tolist()
+year_df = year_df[year_df["text"].str.strip() != ""]
+run_hdbscan(year_df["text"].tolist(), year_df["year"].tolist(), "Year")
 
-# ─── 3) Instantiate TF–IDF BERTopic model ───────────────────────────────────────
-tfidf_model_f = BERTopic(
-    nr_topics=10,
-    calculate_probabilities=True,
-    vectorizer_model=TfidfVectorizer(stop_words="english", ngram_range=(1,2))
-)
-
-# ─── 4) Fit & transform firm-level docs ────────────────────────────────────────
-topics_f, probs_f = tfidf_model_f.fit_transform(docs_f)
-
-# Optional: print a summary of the top 5 topics
-info_f = tfidf_model_f.get_topic_info().nlargest(5, "Count")[["Topic", "Count", "Name"]]
-print("Top 5 Firm-Level Topics (TF–IDF):")
-print(info_f.to_string(), "\n")
-
-# ─── 5) Save firm-level top words to CSV ───────────────────────────────────────
-rows_f = []
-for t in tfidf_model_f.get_topic_info().Topic:
-    if t < 0:
-        continue
-    for word, weight in tfidf_model_f.get_topic(t):
-        rows_f.append({
-            "topic": t,
-            "word": word,
-            "weight": weight
-        })
-
-firm_out = "bertopic_firm_top_words_tfidf.csv"
-pd.DataFrame(rows_f).to_csv(firm_out, index=False)
-print(f"Saved firm-level TF–IDF top words to {firm_out}")
-
-# ─── 6) Repeat for year-level docs ─────────────────────────────────────────────
-tfidf_model_y = BERTopic(
-    nr_topics=10,
-    calculate_probabilities=True,
-    vectorizer_model=TfidfVectorizer(stop_words="english", ngram_range=(1,2))
-)
-
-topics_y, probs_y = tfidf_model_y.fit_transform(docs_y)
-
-# Optional: print a summary of the top 5 topics
-info_y = tfidf_model_y.get_topic_info().nlargest(5, "Count")[["Topic", "Count", "Name"]]
-print("Top 5 Year-Level Topics (TF–IDF):")
-print(info_y.to_string(), "\n")
-
-# ─── 7) Save year-level top words to CSV ───────────────────────────────────────
-rows_y = []
-for t in tfidf_model_y.get_topic_info().Topic:
-    if t < 0:
-        continue
-    for word, weight in tfidf_model_y.get_topic(t):
-        rows_y.append({
-            "topic": t,
-            "word": word,
-            "weight": weight
-        })
-
-year_out = "bertopic_year_top_words_tfidf.csv"
-pd.DataFrame(rows_y).to_csv(year_out, index=False)
-print(f"Saved year-level TF–IDF top words to {year_out}")
+print("\n✅ All done — 6 CSVs created (3 groups × [topics, doc_probs]).")

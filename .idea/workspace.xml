@@ -5,18 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b3852af4-b09c-448a-a41a-f9d849b319fe" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/tester.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Initial Data Reader.py" beforeDir="false" afterPath="$PROJECT_DIR$/Initial Data Reader.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bertopic_firm_doc_probs.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bertopic_firm_top_words.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bertopic_year_doc_probs.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bertopic_year_top_words.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/firm_topic_distribution.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_data__final.pkl" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_data_expanded.csv" beforeDir="false" afterPath="$PROJECT_DIR$/report_data_expanded.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/report_data_expanded_regions.csv" beforeDir="false" afterPath="$PROJECT_DIR$/report_data_expanded_regions.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/year_topic_distribution.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bertopic_firm_top_words_tfidf.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bertopic_year_top_words_tfidf.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/report_data_expanded.csv" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tester.py" beforeDir="false" afterPath="$PROJECT_DIR$/tester.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -96,8 +90,13 @@
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/Initial Data Reader.py</url>
-          <line>3</line>
+          <line>2</line>
           <option name="timeStamp" value="1" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tester.py</url>
+          <line>43</line>
+          <option name="timeStamp" value="2" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
